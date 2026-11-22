@@ -143,3 +143,19 @@ def test_project_scope():
     assert len(project_scope(cl, "A")) == 1
     other = pd.DataFrame({"p1_wireid": ["x"]})
     assert len(project_scope(other, "A")) == 1  # no project column -> unchanged
+
+
+def test_results_slides(tmp_path):
+    from pptx import Presentation
+    from commonizer.slides import write_slides
+    base = [[f"a{i}", "A10X1.4", str(i), "X20", str(i), "0.5", "rt", f"P{i}", "DACH", "A1A", "M1", "-", "Lamp"]
+            for i in range(1, 6)]
+    p1 = _wl(base, "P1")
+    p2 = _wl([["n" + r[0]] + [r[1].replace("A10X1.4", "A77cX9.4")] + r[2:10] + ["N1", "M1", "Lamp"] for r in base], "P2")
+    for cfg in (Config(), Config(merge_same_vercodung_only=False)):
+        res = compare(p1, p2, cfg)
+        out = tmp_path / "s.pptx"
+        write_slides([res, res], str(out), files=["a.xlsx", "b.xlsx"])
+        prs = Presentation(str(out))
+        text = " ".join(sh.text_frame.text for s in prs.slides for sh in s.shapes if sh.has_text_frame)
+        assert "P1 → P2" in text and len(prs.slides) >= 7

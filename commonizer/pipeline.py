@@ -26,6 +26,7 @@ class Result:
     target: str
     tables: Dict[str, pd.DataFrame] = field(default_factory=dict)
     timings: Dict[str, float] = field(default_factory=dict)
+    meta: Dict[str, str] = field(default_factory=dict)
 
 
 def _prep(w: pd.DataFrame, cfg: Config) -> pd.DataFrame:
@@ -46,6 +47,9 @@ def compare(base: Wirelist, target: Wirelist, cfg: Optional[Config] = None,
     say = (lambda msg, frac=None: progress(msg, frac)) if progress else (lambda msg, frac=None: None)
     log = lambda msg: say(msg, None)  # noqa: E731
     res = Result(base.label, target.label)
+    res.meta["merge_rule"] = ("same Vercodung only" + (" (empty Vercodung included)" if cfg.merge_include_empty_vercodung
+                                                       else "") if cfg.merge_same_vercodung_only
+                              else "any Vercodung (conflicts flagged)")
     T = time.perf_counter
     t0 = T()
 

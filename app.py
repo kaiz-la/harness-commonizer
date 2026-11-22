@@ -263,6 +263,8 @@ class App:
         self.run_btn.pack(fill="x")
         self.export_btn = ttk.Button(rf, text="Export to Excel…", command=self.export, state="disabled")
         self.export_btn.pack(fill="x", pady=4)
+        self.slides_btn = ttk.Button(rf, text="Export slides (PowerPoint)…", command=self.export_slides, state="disabled")
+        self.slides_btn.pack(fill="x")
         self.prog = ttk.Progressbar(rf, length=220, mode="determinate", maximum=1.0)
         self.prog.pack(fill="x", pady=4)
         self.status = ttk.Label(rf, text="Add two or more wirelists", wraplength=230)
@@ -373,6 +375,7 @@ class App:
             return
         self.run_btn.config(state="disabled")
         self.export_btn.config(state="disabled")
+        self.slides_btn.config(state="disabled")
         self.prog["value"] = 0
         args = dict(files=list(self.files), key=self.key.get().strip(), mode=self.mode.get(),
                     baseline=max(0, self.baseline.current()), commonize=self.do_common.get(), cfg=self.cfg)
@@ -407,14 +410,17 @@ class App:
                     self.show_result(0)
                     self.run_btn.config(state="normal")
                     self.export_btn.config(state="normal")
+                    self.slides_btn.config(state="normal")
                     self.status.config(text="Finished — browse the tabs or export")
                 elif kind == "exported":
                     self.export_btn.config(state="normal")
+                    self.slides_btn.config(state="normal")
                     self.status.config(text=f"Saved {Path(a).name}")
                     self.write_log(f"Report written to {a}")
                 elif kind == "error":
                     self.run_btn.config(state="normal")
                     self.export_btn.config(state="normal" if self.results else "disabled")
+                    self.slides_btn.config(state="normal" if self.results else "disabled")
                     self.write_log(a)
                     messagebox.showerror("Error", a.split("\n")[0])
         except queue.Empty:
@@ -480,6 +486,37 @@ class App:
                 self.q.put(("exported", p, None))
             except Exception as e:  # noqa: BLE001
                 self.q.put(("error", f"Export failed: {e}", None))
+        threading.Thread(target=job, daemon=True).start()
+
+    def export_slides(self):
+        """Results deck for the current run (all comparisons), limited to the selected project if any."""
+        if not self.results:
+            return
+        proj = self.proj.get() or ALL_PROJECTS
+        scope = "" if proj == ALL_PROJECTS else "_" + "".join(ch if ch.isalnum() else "_" for ch in proj)
+        p = filedialog.asksaveasfilename(defaultextension=".pptx", initialfile=f"commonizer_slides{scope}.pptx",
+                                         filetypes=[("PowerPoint", "*.pptx")])
+        if not p:
+            return
+        self.export_btn.config(state="disabled")
+        self.slides_btn.config(state="disabled")
+        self.status.config(text="Writing slides…")
+        flt = None if proj == ALL_PROJECTS else (lambda name, df: project_scope(df, proj))
+        files = [Path(f).name for f in self.files]
+
+        def job():
+            try:
+                try:
+                    from commonizer.slides import write_slides
+                except ImportError:
+                    self.q.put(("error", "Slide export needs the python-pptx package. Close the app and start it "
+                                         "again with run_app.bat / run_app.command (it installs missing packages), "
+                                         "or run: .venv/bin/python -m pip install python-pptx", None))
+                    return
+                write_slides(self.results, p, flt, "" if proj == ALL_PROJECTS else proj, files)
+                self.q.put(("exported", p, None))
+            except Exception as e:  # noqa: BLE001
+                self.q.put(("error", f"Slide export failed: {e}\n\n{traceback.format_exc()}", None))
         threading.Thread(target=job, daemon=True).start()
 
 

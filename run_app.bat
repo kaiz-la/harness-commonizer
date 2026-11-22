@@ -10,6 +10,12 @@ if not exist ".venv\Scripts\python.exe" (
     pause & exit /b 1
   )
   ".venv\Scripts\python.exe" -m pip install -q --upgrade pip
-  ".venv\Scripts\python.exe" -m pip install -q -r requirements.txt || (echo Setup failed & pause & exit /b 1)
+)
+rem (re)install dependencies whenever requirements.txt changed since the last install
+fc /b requirements.txt ".venv\requirements.installed" >nul 2>nul
+if errorlevel 1 (
+  echo Installing / updating dependencies...
+  ".venv\Scripts\python.exe" -m pip install -q -r requirements.txt || (echo Dependency install failed & pause & exit /b 1)
+  copy /y requirements.txt ".venv\requirements.installed" >nul
 )
 start "" ".venv\Scripts\pythonw.exe" app.py

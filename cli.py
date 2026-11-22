@@ -3,9 +3,10 @@
 
   python cli.py P1.xlsx P2.xlsx [P3.xlsx …] [--key answer_key.xlsx] [-o report.xlsx]
                 [--mode chain|baseline] [--no-commonize] [--config cfg.json]
-                [--any-vercodung] [--project NAME]
+                [--any-vercodung] [--project NAME] [--pptx slides.pptx]
 """
 import argparse
+from pathlib import Path
 import json
 import sys
 import time
@@ -27,6 +28,7 @@ def main(argv=None):
     ap.add_argument("--config", help="json file with Config overrides")
     ap.add_argument("--any-vercodung", action="store_true",
                     help="merge candidates may have different Vercodung (default: same Vercodung only)")
+    ap.add_argument("--pptx", help="also write a results PowerPoint (slides to copy into your own deck)")
     ap.add_argument("--project", help="limit the report to one project (as shown in the project columns)")
     a = ap.parse_args(argv)
     if len(a.wirelists) < 2:
@@ -55,6 +57,10 @@ def main(argv=None):
         print("\nTimings: " + ", ".join(f"{k} {v:.1f}s" for k, v in r.timings.items()))
     flt = (lambda name, df: project_scope(df, a.project)) if a.project else None
     write_report(results, a.out, flt)
+    if a.pptx:
+        from commonizer.slides import write_slides
+        write_slides(results, a.pptx, flt, a.project or "", [Path(p).name for p in a.wirelists])
+        print(f"Slides written to {a.pptx}")
     print(f"\nReport written to {a.out}  (total {time.perf_counter() - t:.1f}s)")
     return 0
 

@@ -29,7 +29,7 @@ It does three things:
 - **macOS:** double-click **`run_app.command`** in Finder.
 - **Windows:** double-click **`run_app.bat`** in Explorer. Needs Python 3.9+ from python.org (with "tcl/tk" ticked, which is the default).
 
-The first run creates `.venv` and installs the dependencies. On Windows, use `.venv\Scripts\python` wherever this README says `.venv/bin/python`. You can also start it from a terminal:
+The first run creates `.venv` and installs the dependencies. The launchers also reinstall them whenever `requirements.txt` changes, for example after a `git pull`. On Windows, use `.venv\Scripts\python` wherever this README says `.venv/bin/python`. You can also start it from a terminal:
 
 ```bash
 .venv/bin/python app.py
@@ -43,6 +43,7 @@ In the app:
 4. Browse the tabs. You can filter, click a header to sort, double-click a row for details and page with ◀ ▶.
 5. Use **Project:** above the tabs to show one project only. It applies to the tabs that have a project column (part number report, merge candidates, clusters, wires without part number). The P1→P2 mapping tabs always show both projects.
 6. **Export view…** on any tab saves exactly the rows shown (project, filter and sort) to Excel. **Export to Excel…** saves the whole report, limited to the selected project if one is chosen.
+7. **Export slides (PowerPoint)…** saves a results deck for the run: key figures, wire status, part numbers, connector renames, merge candidates, function groups and, when a key was loaded, the answer-key check. Every slide names the comparison and date, so you can copy slides into your own presentation. Charts are native PowerPoint charts and stay editable. The selected project filter applies here too.
 
 ## Command line (batch / very large files)
 
@@ -54,6 +55,7 @@ In the app:
 - `--no-commonize` for mapping only.
 - `--any-vercodung` to allow merge candidates with different Vercodung.
 - `--project "NAME"` to limit the report to one project.
+- `--pptx slides.pptx` to also write the results deck.
 - `--config cfg.json` to override thresholds. The keys are the same as in **Settings…** in the app.
 
 ## How it works (classic ML, all local)

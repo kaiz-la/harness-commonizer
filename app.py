@@ -12,10 +12,49 @@ import traceback
 from pathlib import Path
 from tkinter import (BooleanVar, StringVar, Tk, Toplevel, filedialog, messagebox, ttk)
 import tkinter as tk
+import sys
 
-import pandas as pd
+REQUIRED = {"pandas": "pandas", "numpy": "numpy", "scipy": "scipy", "sklearn": "scikit-learn",
+            "openpyxl": "openpyxl", "rapidfuzz": "RapidFuzz", "xlsxwriter": "xlsxwriter", "pyarrow": "pyarrow"}
 
-from commonizer import __version__
+
+def _check_dependencies():
+    """Fail with a readable message (and the interpreter in use) instead of a bare ImportError."""
+    import importlib
+    missing = []
+    for mod, pkg in REQUIRED.items():
+        try:
+            importlib.import_module(mod)
+        except ImportError:
+            missing.append(pkg)
+    if not missing:
+        return
+    here = Path(__file__).resolve().parent
+    venv_py = here / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    launcher = "run_app.bat" if sys.platform == "win32" else "run_app.command"
+    msg = (f"Missing Python packages: {', '.join(missing)}\n\n"
+           f"This app is running with:\n{sys.executable}\n\n"
+           f"Packages installed into another Python do not count. Start the app with {launcher} "
+           f"(it installs everything into {here / '.venv'}), or install them for this Python:\n\n"
+           f"\"{sys.executable}\" -m pip install -r \"{here / 'requirements.txt'}\"")
+    if venv_py.exists() and Path(sys.executable).resolve() != venv_py.resolve():
+        msg += f"\n\nNote: the app's own environment is {venv_py}"
+    print(msg, file=sys.stderr)
+    try:
+        root = Tk()
+        root.withdraw()
+        messagebox.showerror("Harness Commonizer: missing packages", msg)
+        root.destroy()
+    except Exception:  # noqa: BLE001
+        pass
+    sys.exit(1)
+
+
+_check_dependencies()
+
+import pandas as pd  # noqa: E402
+
+from commonizer import __version__  # noqa: E402
 from commonizer.config import Config
 from commonizer.io_loader import load_answer_key, load_wirelist
 from commonizer.pipeline import compare_many

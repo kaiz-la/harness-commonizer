@@ -20,6 +20,10 @@ It does three things:
 3. **Function clusters.** Groups similar part numbers using a similarity graph plus HDBSCAN. Each group gets a representative part, its core connections and the possible part-number reduction.
 4. **Part number report.** One row per part number per project: wires, connectors, harness attribute, Vercodung, lineage to the other project, cluster, number of merge candidates and the best merge partner.
 
+## Presentation
+
+[`docs/Harness_Commonizer_Overview.pptx`](docs/Harness_Commonizer_Overview.pptx) is a 10-slide overview of how the system works. It has management slides (value, results, how to use it) and technical slides (methods, connector alignment, commonization, scale).
+
 ## Start
 
 - **macOS:** double-click **`run_app.command`** in Finder.

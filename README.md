@@ -19,7 +19,10 @@ It does three things:
 
 ## Start
 
-Double-click **`run_app.command`** in Finder. The first run creates `.venv`. You can also start it from a terminal:
+- **macOS:** double-click **`run_app.command`** in Finder.
+- **Windows:** double-click **`run_app.bat`** in Explorer. Needs Python 3.9+ from python.org (with "tcl/tk" ticked, which is the default).
+
+The first run creates `.venv` and installs the dependencies. On Windows, use `.venv\Scripts\python` wherever this README says `.venv/bin/python`. You can also start it from a terminal:
 
 ```bash
 .venv/bin/python app.py

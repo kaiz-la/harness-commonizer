@@ -27,6 +27,8 @@ class Config:
     w_harness: float = 0.5
     w_long_name: float = 0.3
     w_wire_profile: float = 0.3
+    merge_same_vercodung_only: bool = True     # merge candidates must have the same (logically equal) Vercodung
+    merge_include_empty_vercodung: bool = False  # also pair modules that both have no Vercodung
     merge_knn: int = 15
     candidate_max_df: int = 300         # blocking tokens shared by more modules than this are ignored
     merge_min_similarity: float = 0.45   # combined cosine to become a candidate

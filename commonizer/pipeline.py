@@ -7,7 +7,8 @@ from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 
-from .commonize import build_modules, function_clusters, merge_candidates, module_matrix, orphan_suggestions
+from .commonize import (build_modules, function_clusters, merge_candidates, module_matrix,
+                        orphan_suggestions, part_number_report)
 from .config import Config
 from .connector_align import align_connectors
 from .evaluate import evaluate
@@ -31,6 +32,11 @@ def _prep(w: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     w = add_endpoint_columns(w)
     w["fp"] = wire_fingerprint(w, cfg.fingerprint_cols)
     return w
+
+
+def project_labels(base: Wirelist, target: Wirelist):
+    a, b = base.label or "Project 1", target.label or "Project 2"
+    return (a + " (1)", b + " (2)") if a == b else (a, b)
 
 
 def compare(base: Wirelist, target: Wirelist, cfg: Optional[Config] = None,
@@ -96,7 +102,8 @@ def compare(base: Wirelist, target: Wirelist, cfg: Optional[Config] = None,
         t = T()
         tt = T()
         t1 = translate(w1, mapping)  # project-1 wires in project-2 connector space
-        mods = pd.concat([build_modules(t1, "P1"), build_modules(w2, "P2")], ignore_index=True)
+        lab1, lab2 = project_labels(base, target)
+        mods = pd.concat([build_modules(t1, lab1), build_modules(w2, lab2)], ignore_index=True)
         X, Xc = module_matrix(mods, cfg)
         log(f"  {len(mods):,} modules × {X.shape[1]:,} features ({T() - tt:.1f}s)")
         tt = T()
@@ -113,13 +120,16 @@ def compare(base: Wirelist, target: Wirelist, cfg: Optional[Config] = None,
         log(f"  clustering done ({T() - tt:.1f}s)")
         tt = T()
         say("Suggesting modules for wires without part number…", 0.90)
-        orphans = orphan_suggestions(w2, mods, X, "P2", cfg)
+        orphans = orphan_suggestions(w2, mods, X, lab2, cfg)
+        if len(orphans):
+            orphans.insert(0, "project", lab2)
         log(f"  {len(orphans):,} orphan wires scored ({T() - tt:.1f}s)")
         res.timings["commonization"] = T() - t
         res.tables["Merge_Candidates"] = pairs
         res.tables["Function_Clusters"] = clusters
         res.tables["Cluster_Members"] = members
         res.tables["Orphan_Wires_P2"] = orphans
+        res.tables["Part_Number_Report"] = part_number_report(mods, modules, lab1, lab2, pairs, members)
         if len(pairs):
             rec = pairs.recommendation.value_counts()
             for k, v in rec.items():

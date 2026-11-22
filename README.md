@@ -15,7 +15,10 @@ It does three things:
    - Combine (shared connectors)
    - Variant pair
    - Review
+
+   By default only part numbers with the **same Vercodung** are paired. "Same" means logically equal, so `A1A+(B2B/C3C)` matches `(C3C/B2B)+A1A`. Untick **Merge candidates: same Vercodung only** in the app, or pass `--any-vercodung`, to also see pairs with different code rules.
 3. **Function clusters.** Groups similar part numbers using a similarity graph plus HDBSCAN. Each group gets a representative part, its core connections and the possible part-number reduction.
+4. **Part number report.** One row per part number per project: wires, connectors, harness attribute, Vercodung, lineage to the other project, cluster, number of merge candidates and the best merge partner.
 
 ## Start
 
@@ -34,7 +37,8 @@ In the app:
 2. Optionally pick an answer key.
 3. Click **Run analysis**.
 4. Browse the tabs. You can filter, click a header to sort, double-click a row for details and page with ◀ ▶.
-5. Click **Export to Excel…** to save the report.
+5. Use **Project:** above the tabs to show one project only. It applies to the tabs that have a project column (part number report, merge candidates, clusters, wires without part number). The P1→P2 mapping tabs always show both projects.
+6. **Export view…** on any tab saves exactly the rows shown (project, filter and sort) to Excel. **Export to Excel…** saves the whole report, limited to the selected project if one is chosen.
 
 ## Command line (batch / very large files)
 
@@ -44,6 +48,8 @@ In the app:
 
 - `--mode chain|baseline` for more than 2 files.
 - `--no-commonize` for mapping only.
+- `--any-vercodung` to allow merge candidates with different Vercodung.
+- `--project "NAME"` to limit the report to one project.
 - `--config cfg.json` to override thresholds. The keys are the same as in **Settings…** in the app.
 
 ## How it works (classic ML, all local)

@@ -109,9 +109,10 @@ def module_matrix(m: pd.DataFrame, cfg: Config):
 
 
 def topk_pairs(X: sparse.csr_matrix, k: int, min_sim: float, Xc: Optional[sparse.csr_matrix] = None,
-               chunk: int = 4000):
+               chunk: int = 4000, groups: Optional[np.ndarray] = None):
     """Sparse cosine kNN. Candidates come from shared blocking tokens (Xc); exact similarity
-    is then computed on X for those candidates only. Returns arrays i<j, sim."""
+    is then computed on X for those candidates only. If `groups` is given, only pairs with the
+    same group id (>= 0) are kept. Returns arrays i<j, sim."""
     n = X.shape[0]
     if Xc is None:
         Xc = X
@@ -121,6 +122,8 @@ def topk_pairs(X: sparse.csr_matrix, k: int, min_sim: float, Xc: Optional[sparse
         C = (Xc[s:s + chunk] @ XcT).tocoo()
         r, c = C.row + s, C.col
         ok = r != c
+        if groups is not None:
+            ok &= (groups[r] == groups[c]) & (groups[r] >= 0)
         r, c = r[ok], c[ok]
         if not len(r):
             continue
@@ -167,9 +170,26 @@ def merge_candidates(m: pd.DataFrame, X: sparse.csr_matrix, cfg: Config,
                      exclude_pairs: Optional[set] = None, progress: Optional[Callable] = None,
                      Xc: Optional[sparse.csr_matrix] = None) -> pd.DataFrame:
     log = progress or (lambda *_: None)
-    I, J, V = topk_pairs(X, cfg.merge_knn, cfg.merge_min_similarity, Xc)
-    log(f"  {len(I):,} candidate module pairs from kNN")
     rules = [parse_vercodung(v) for v in m.vercodung]
+    groups = None
+    if cfg.merge_same_vercodung_only:
+        # group = logically identical code rule (term / alternative order does not matter)
+        canon = pd.Series([r.canonical() for r in rules])
+        groups = pd.factorize(canon)[0]
+        if not cfg.merge_include_empty_vercodung:
+            groups[(canon == "").values] = -1
+        # every same-rule group of a manageable size is also a blocking token, so pairs that
+        # share the rule but little else still get compared
+        size = np.bincount(groups[groups >= 0]) if (groups >= 0).any() else np.array([], int)
+        ok = np.where((size >= 2) & (size <= max(cfg.candidate_max_df, 2)))[0]
+        rows = np.where(np.isin(groups, ok))[0]
+        if len(rows):
+            col = pd.factorize(groups[rows])[0]
+            G = sparse.csr_matrix((np.ones(len(rows), np.float32), (rows, col)), shape=(len(m), col.max() + 1))
+            Xc = G if Xc is None or not Xc.shape[1] else sparse.hstack([Xc, G]).tocsr()
+        log(f"  same-Vercodung mode: {int((size >= 2).sum()):,} code-rule groups with ≥2 modules")
+    I, J, V = topk_pairs(X, cfg.merge_knn, cfg.merge_min_similarity, Xc, groups=groups)
+    log(f"  {len(I):,} candidate module pairs from kNN")
     pn = m.part_number.values
     proj = m.project.values
     out = []
@@ -340,3 +360,49 @@ def orphan_suggestions(wires: pd.DataFrame, m: pd.DataFrame, X: sparse.csr_matri
                      "suggested_part_number": mm.part_number.iat[best] if best is not None else "",
                      "score": round(bs, 3)})
     return pd.DataFrame(rows).sort_values("score", ascending=False).reset_index(drop=True)
+
+
+def part_number_report(m: pd.DataFrame, lineage: pd.DataFrame, lab1: str, lab2: str,
+                       pairs: pd.DataFrame, members: pd.DataFrame) -> pd.DataFrame:
+    """One row per part number per project: attributes, lineage, cluster and best merge partner."""
+    r = m[["project", "part_number", "wire_count", "harness_attribute", "harness_design", "vercodung",
+           "vercodung_variants"]].copy()
+    r["connectors"] = m.connectors.map(len).values
+    r["connections"] = m.connections.map(len).values
+    key = r.project + "@" + r.part_number
+    # lineage between the two projects
+    lin = lineage[lineage.p1_part_number.astype(str) != ""]
+    succ = lin.groupby("p1_part_number").p2_part_number.agg(lambda s: "; ".join(sorted(set(s))))
+    pred = lineage.set_index("p2_part_number")
+    is1, is2 = r.project == lab1, r.project == lab2
+    r["lineage_status"] = ""
+    r["linked_part_numbers"] = ""
+    r.loc[is2, "lineage_status"] = r.loc[is2, "part_number"].map(pred.status).fillna("")
+    r.loc[is2, "linked_part_numbers"] = r.loc[is2, "part_number"].map(pred.p1_part_number).fillna("")
+    s1 = r.loc[is1, "part_number"].map(succ)
+    r.loc[is1, "lineage_status"] = np.where(s1.notna(), "carried into " + lab2, "not carried (dropped)")
+    r.loc[is1, "linked_part_numbers"] = s1.fillna("")
+    # clusters
+    r["cluster_id"], r["cluster_size"], r["is_representative"] = "", 0, False
+    if len(members):
+        mk = members.project + "@" + members.part_number
+        sz = members.cluster_id.map(members.cluster_id.value_counts())
+        r["cluster_id"] = key.map(pd.Series(members.cluster_id.values, mk.values)).fillna("")
+        r["cluster_size"] = key.map(pd.Series(sz.values, mk.values)).fillna(0).astype(int)
+        r["is_representative"] = key.isin(set(mk[members.is_representative.astype(bool)].values))
+    # merge candidates (pairs are sorted best-first)
+    r["merge_candidates"], r["best_merge_partner"], r["best_recommendation"], r["best_similarity"] = 0, "", "", np.nan
+    if len(pairs):
+        a = pd.DataFrame({"k": pairs.project_a + "@" + pairs.part_number_a,
+                          "other": pairs.part_number_b + " [" + pairs.project_b + "]",
+                          "rec": pairs.recommendation, "sim": pairs.similarity})
+        b = pd.DataFrame({"k": pairs.project_b + "@" + pairs.part_number_b,
+                          "other": pairs.part_number_a + " [" + pairs.project_a + "]",
+                          "rec": pairs.recommendation, "sim": pairs.similarity})
+        e = pd.concat([a, b], ignore_index=True).reset_index().sort_values("index", kind="stable")
+        first = e.drop_duplicates("k").set_index("k")
+        r["merge_candidates"] = key.map(e.k.value_counts()).fillna(0).astype(int)
+        r["best_merge_partner"] = key.map(first.other).fillna("")
+        r["best_recommendation"] = key.map(first.rec).fillna("")
+        r["best_similarity"] = key.map(first.sim)
+    return r.sort_values(["project", "part_number"]).reset_index(drop=True)

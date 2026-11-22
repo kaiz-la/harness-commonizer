@@ -19,24 +19,30 @@ from commonizer import __version__
 from commonizer.config import Config
 from commonizer.io_loader import load_answer_key, load_wirelist
 from commonizer.pipeline import compare_many
-from commonizer.report import write_report
+from commonizer.report import (ALL_PROJECTS, PROJECT_COLS, project_scope, write_report,  # noqa: F401
+                               write_tables)
 
 PAGE = 1000
 SETTINGS_FILE = Path.home() / ".harness_commonizer.json"
-TAB_ORDER = ["Summary", "Evaluation", "VPC_Mapping", "Wire_Mapping", "Part_Number_Modules", "Dropped_from_P1",
+TAB_ORDER = ["Summary", "Evaluation", "VPC_Mapping", "Wire_Mapping", "Part_Number_Modules", "Part_Number_Report", "Dropped_from_P1",
              "Merge_Candidates", "Function_Clusters", "Cluster_Members", "Orphan_Wires_P2", "Evaluation_Mismatches"]
 TAB_TITLES = {"VPC_Mapping": "VPC renames", "Wire_Mapping": "Wires", "Part_Number_Modules": "Part numbers",
               "Dropped_from_P1": "Dropped", "Merge_Candidates": "Merge candidates",
               "Function_Clusters": "Function clusters", "Cluster_Members": "Cluster members",
-              "Orphan_Wires_P2": "Wires w/o part no.", "Evaluation_Mismatches": "Key mismatches"}
+              "Orphan_Wires_P2": "Wires w/o part no.", "Evaluation_Mismatches": "Key mismatches",
+              "Part_Number_Report": "Part number report"}
+
 
 
 class TableView(ttk.Frame):
     """Paged, filterable, sortable view of a DataFrame (keeps the UI fast for 100k+ rows)."""
 
-    def __init__(self, master, df: pd.DataFrame):
+    def __init__(self, master, df: pd.DataFrame, name: str = "table", project: str = ALL_PROJECTS):
         super().__init__(master)
-        self.df_all = df.reset_index(drop=True)
+        self.name = name
+        self.df_src = df.reset_index(drop=True)
+        self.project = project
+        self.df_all = project_scope(self.df_src, project)
         self.df = self.df_all
         self.page = 0
         self.sort_col, self.sort_asc = None, True
@@ -53,6 +59,7 @@ class TableView(ttk.Frame):
                      state="readonly").pack(side="left")
         ttk.Button(bar, text="Apply", command=self.apply_filter).pack(side="left", padx=4)
         ttk.Button(bar, text="Clear", command=self.clear_filter).pack(side="left")
+        ttk.Button(bar, text="Export view…", command=self.export_view).pack(side="left", padx=(12, 0))
         self.info = ttk.Label(bar, text="")
         self.info.pack(side="right")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.goto(self.page + 1)).pack(side="right")
@@ -91,6 +98,24 @@ class TableView(ttk.Frame):
             self.df = self.df_all[text.str.contains(q, case=False, regex=False)]
         self.page = 0
         self.render()
+
+    def set_project(self, project: str):
+        self.project = project
+        self.df_all = project_scope(self.df_src, project)
+        self.apply_filter()
+
+    def export_view(self):
+        """Export exactly the rows shown (project scope + text filter + sort) to its own workbook."""
+        scope = "" if self.project == ALL_PROJECTS else "_" + "".join(ch if ch.isalnum() else "_" for ch in self.project)
+        p = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=f"{self.name}{scope}.xlsx",
+                                         filetypes=[("Excel", "*.xlsx")], parent=self)
+        if not p:
+            return
+        try:
+            write_tables({self.name: self.df}, p)
+            messagebox.showinfo("Exported", f"{len(self.df):,} rows written to\n{p}", parent=self)
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror("Export failed", str(e), parent=self)
 
     def clear_filter(self):
         self.q.set("")
@@ -166,7 +191,14 @@ class SettingsDialog(Toplevel):
             d = {}
             for k, (var, typ) in self.vars.items():
                 s = var.get()
-                d[k] = json.loads(s) if typ is list else typ(s)
+                if typ is list:
+                    d[k] = json.loads(s)
+                elif typ is bool:
+                    if s.strip().lower() not in ("true", "false", "1", "0", "yes", "no"):
+                        raise ValueError(f"{k}: use True or False")
+                    d[k] = s.strip().lower() in ("true", "1", "yes")
+                else:
+                    d[k] = typ(s)
             self.on_save(Config.from_dict(d))
             self.destroy()
         except Exception as e:  # noqa: BLE001
@@ -182,6 +214,7 @@ class App:
         self.results = []
         self.cfg = self.load_cfg()
         self.files = []
+        self.views = []
 
         style = ttk.Style()
         if "aqua" not in style.theme_names():
@@ -212,14 +245,17 @@ class App:
         self.do_common = BooleanVar(value=True)
         ttk.Checkbutton(of, text="Commonization (merge candidates + clusters)", variable=self.do_common
                         ).grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Label(of, text="Answer key (optional):").grid(row=3, column=0, sticky="w", pady=(6, 0))
+        self.same_ver = BooleanVar(value=self.cfg.merge_same_vercodung_only)
+        ttk.Checkbutton(of, text="Merge candidates: same Vercodung only", variable=self.same_ver,
+                        command=self.toggle_same_ver).grid(row=3, column=0, columnspan=2, sticky="w")
+        ttk.Label(of, text="Answer key (optional):").grid(row=4, column=0, sticky="w", pady=(6, 0))
         self.key = StringVar()
         kf = ttk.Frame(of)
-        kf.grid(row=4, column=0, columnspan=2, sticky="we")
+        kf.grid(row=5, column=0, columnspan=2, sticky="we")
         ttk.Entry(kf, textvariable=self.key, width=40).pack(side="left")
         ttk.Button(kf, text="…", width=3, command=self.pick_key).pack(side="left")
         ttk.Button(kf, text="×", width=3, command=lambda: self.key.set("")).pack(side="left")
-        ttk.Button(of, text="Settings…", command=self.open_settings).grid(row=5, column=0, sticky="w", pady=6)
+        ttk.Button(of, text="Settings…", command=self.open_settings).grid(row=6, column=0, sticky="w", pady=6)
 
         rf = ttk.LabelFrame(top, text="3  Run", padding=6)
         rf.pack(side="left", fill="y")
@@ -241,6 +277,13 @@ class App:
         self.cmp = ttk.Combobox(sel, state="readonly", width=70)
         self.cmp.pack(side="left", padx=4)
         self.cmp.bind("<<ComboboxSelected>>", lambda _: self.show_result(self.cmp.current()))
+        ttk.Label(sel, text="Project:").pack(side="left", padx=(16, 0))
+        self.proj = ttk.Combobox(sel, state="readonly", width=34, values=[ALL_PROJECTS])
+        self.proj.set(ALL_PROJECTS)
+        self.proj.pack(side="left", padx=4)
+        self.proj.bind("<<ComboboxSelected>>", lambda _: self.apply_project())
+        self.proj_note = ttk.Label(sel, text="", foreground="#5A6B80")
+        self.proj_note.pack(side="left", padx=6)
         self.nb = ttk.Notebook(res)
         self.nb.pack(fill="both", expand=True)
         pw.add(res, weight=5)
@@ -297,9 +340,20 @@ class App:
         except Exception:  # noqa: BLE001
             return Config()
 
+    def save_cfg(self):
+        try:
+            SETTINGS_FILE.write_text(json.dumps(self.cfg.to_dict(), indent=1))
+        except OSError:
+            pass
+
+    def toggle_same_ver(self):
+        self.cfg.merge_same_vercodung_only = bool(self.same_ver.get())
+        self.save_cfg()
+
     def open_settings(self):
         def save(cfg):
             self.cfg = cfg
+            self.same_ver.set(cfg.merge_same_vercodung_only)
             try:
                 SETTINGS_FILE.write_text(json.dumps(cfg.to_dict(), indent=1))
             except OSError:
@@ -367,32 +421,62 @@ class App:
             pass
         self.root.after(100, self.poll)
 
+    def projects_of(self, r):
+        found = []
+        for df in r.tables.values():
+            for c in PROJECT_COLS:
+                if c in df.columns:
+                    found += [x for x in df[c].astype(str).unique() if x and x not in found]
+        return sorted(found)
+
+    def tab_title(self, view: "TableView"):
+        title = TAB_TITLES.get(view.name, view.name.replace("_", " "))
+        return title if view.name == "Summary" else f"{title} ({len(view.df_all):,})"
+
+    def apply_project(self):
+        p = self.proj.get() or ALL_PROJECTS
+        for tab_id, view in self.views:
+            view.set_project(p)
+            self.nb.tab(tab_id, text=self.tab_title(view))
+        self.proj_note.config(text="" if p == ALL_PROJECTS else
+                              "filters tabs with a project column; P1→P2 mapping tabs show both projects")
+
     def show_result(self, idx):
         for t in self.nb.tabs():
             self.nb.forget(t)
+        self.views = []
         r = self.results[idx]
+        projects = self.projects_of(r)
+        self.proj["values"] = [ALL_PROJECTS] + projects
+        if self.proj.get() not in projects:
+            self.proj.set(ALL_PROJECTS)
         for name in TAB_ORDER + [k for k in r.tables if k not in TAB_ORDER]:
             df = r.tables.get(name)
             if df is None or (df.empty and name != "Summary"):
                 continue
-            title = TAB_TITLES.get(name, name.replace("_", " "))
-            self.nb.add(TableView(self.nb, df), text=f"{title} ({len(df):,})" if name != "Summary" else title)
+            view = TableView(self.nb, df, name, self.proj.get())
+            self.nb.add(view, text=self.tab_title(view))
+            self.views.append((self.nb.tabs()[-1], view))
+        self.apply_project()
         tm = ", ".join(f"{k} {v:.1f}s" for k, v in r.timings.items())
         self.write_log(f"Timings: {tm}")
 
     def export(self):
         if not self.results:
             return
-        p = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="commonizer_report.xlsx",
+        proj = self.proj.get() or ALL_PROJECTS
+        scope = "" if proj == ALL_PROJECTS else "_" + "".join(ch if ch.isalnum() else "_" for ch in proj)
+        p = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=f"commonizer_report{scope}.xlsx",
                                          filetypes=[("Excel", "*.xlsx")])
         if not p:
             return
+        flt = None if proj == ALL_PROJECTS else (lambda name, df: project_scope(df, proj))
         self.export_btn.config(state="disabled")
         self.status.config(text="Writing Excel…")
 
         def job():
             try:
-                write_report(self.results, p)
+                write_report(self.results, p, flt)
                 self.q.put(("exported", p, None))
             except Exception as e:  # noqa: BLE001
                 self.q.put(("error", f"Export failed: {e}", None))

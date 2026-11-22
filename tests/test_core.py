@@ -108,3 +108,38 @@ def test_identity_kept_when_no_rename():
     p1, p2 = _wl(rows, "P1"), _wl([["v" + r[0][1:]] + r[1:] for r in rows], "P2")
     _, mapping = align_connectors(*(compare.__globals__["_prep"](w.wires, Config()) for w in (p1, p2)), Config())
     assert mapping["S5X1.3"] == "S5X1.3"
+
+
+# ------------------------------------------------------------------ same-Vercodung merge filter + project scope
+def _mods_pair_rows():
+    rows = []
+    # M1 and M2: same connections, same code rule written in a different order -> candidate
+    # M3: same connections, different rule -> only a candidate when the filter is off
+    for pn, rule in (("M1", "A1A+(B2B/C3C)"), ("M2", "(C3C/B2B)+A1A"), ("M3", "D4D")):
+        for i in range(1, 6):
+            rows.append([f"{pn}w{i}", "S5X1.3", str(i), "X9", str(i), "1", "rt", f"P{i}", "VORBAU", rule, pn,
+                         "-", "Lamp"])
+    return rows
+
+
+def test_merge_candidates_same_vercodung_only():
+    from commonizer.commonize import build_modules, merge_candidates, module_matrix
+    w = compare.__globals__["_prep"](_wl(_mods_pair_rows(), "P").wires, Config())
+    m = build_modules(w, "P")
+    on = Config()
+    X, Xc = module_matrix(m, on)
+    pairs = merge_candidates(m, X, on, Xc=Xc)
+    assert {frozenset(p) for p in zip(pairs.part_number_a, pairs.part_number_b)} == {frozenset({"M1", "M2"})}
+    off = Config(merge_same_vercodung_only=False)
+    pairs = merge_candidates(m, X, off, Xc=Xc)
+    assert len(pairs) == 3
+
+
+def test_project_scope():
+    from commonizer.report import ALL_PROJECTS, project_scope
+    df = pd.DataFrame({"project_a": ["A", "A", "B"], "project_b": ["A", "B", "B"]})
+    assert len(project_scope(df, "A")) == 2 and len(project_scope(df, ALL_PROJECTS)) == 3
+    cl = pd.DataFrame({"projects": ["A, B", "B"]})
+    assert len(project_scope(cl, "A")) == 1
+    other = pd.DataFrame({"p1_wireid": ["x"]})
+    assert len(project_scope(other, "A")) == 1  # no project column -> unchanged
